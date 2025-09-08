@@ -1,0 +1,67 @@
+---
+name: ci
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Build & test (Meson)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config meson ninja-build git
+
+      - name: Configure (Meson)
+        run: meson setup build -Dexamples=disabled
+
+      - name: Run tests
+        run: meson test -C build --print-errorlogs
+
+  release:
+    name: Release header archive
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare archive with header only
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends zip
+
+          TAG="${GITHUB_REF_NAME}"     # e.g. v0.1.0
+          PKG="c-args-parser-${TAG}"   # top-level dir inside archive
+          mkdir -p "dist/${PKG}"
+
+          cp -v src/c-args-parser.h "dist/${PKG}/c-args-parser.h"
+
+          tar -C dist -czf "dist/${PKG}.tar.gz" "${PKG}"
+          (cd dist && zip -r "${PKG}.zip" "${PKG}")
+
+          ls -l dist
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            dist/*.tar.gz
+            dist/*.zip

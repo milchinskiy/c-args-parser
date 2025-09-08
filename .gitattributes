@@ -1,0 +1,3 @@
+src/c-args-parser.h         linguist-language=C
+examples/**                 linguist-vendored
+tests/**                    linguist-vendored
