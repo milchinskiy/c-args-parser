@@ -31,12 +31,12 @@ static int remote_ls(int argc, char **argv, void *u) {
 }
 
 static const cargs_pos pos_add[] = {
-    {"NAME", 1, 1},
-    {"URL",  1, 1}
+    CARGS_POS("NAME", NULL),
+    CARGS_POS("URL",  NULL),
 };
 
 static const cargs_pos pos_rm[] = {
-    {"NAME", 1, 1}
+    CARGS_POS("NAME", NULL),
 };
 
 static const char *rm_aliases[] = {"rm"};

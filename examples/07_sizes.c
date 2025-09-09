@@ -47,7 +47,7 @@ static int cb_rate(const char *v, void *u) {
 
 /* FILE{1..inf} */
 static const cargs_pos pos_schema[] = {
-    {"FILE", 1, CARGS_POS_INF}
+    {"FILE", NULL, 1, CARGS_POS_INF}
 };
 
 static int run_root(int argc, char **argv, void *user) {

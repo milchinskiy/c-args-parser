@@ -21,8 +21,8 @@ static int cb_v(const char *v, void *u) {
 
 /* Schema: SRC{1..inf} DST{1} */
 static const cargs_pos pos_schema[] = {
-    {"SRC", 1, CARGS_POS_INF},
-    {"DST", 1, 1            }
+    {"SRC", NULL, 1, CARGS_POS_INF},
+    {"DST", NULL, 1, 1            }
 };
 
 static int run_cp(int argc, char **argv, void *user) {

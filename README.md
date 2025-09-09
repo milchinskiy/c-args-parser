@@ -63,7 +63,9 @@ meson.build                 # builds library, tests, examples
 ### Build & run examples (Meson)
 
 ```sh
-meson setup build -Dbuildtype=debugoptimized
+# configure with examples enabled
+meson setup build -Dbuildtype=debugoptimized -Dexamples=enabled
+# build all examples
 meson compile -C build examples
 # run the curated example suite:
 ninja -C build examples-run
@@ -163,13 +165,11 @@ static int remote_add(int argc, char** argv, void* u){ (void)u;
   printf("add %s %s\n", argv[0], argv[1]); return CARGS_OK;
 }
 static const cargs_cmd remote_subs[] = {
-  { .name="add", .desc="Add", .opts=NULL,.opt_count=0,
-    .subs=NULL,.sub_count=0, .aliases=NULL,.alias_count=0,
+  { .name="add", .desc="Add",
     .pos=add_pos,.pos_count=2, .run=remote_add },
 };
 const cargs_cmd remote = { .name="remote", .desc="Manage remotes",
-  .opts=NULL,.opt_count=0, .subs=remote_subs,.sub_count=1,
-  .aliases=NULL,.alias_count=0, .pos=NULL,.pos_count=0, .run=NULL };
+  .subs=remote_subs,.sub_count=1 };
 ```
 
 Users can do: `prog remote add origin git@git.co`

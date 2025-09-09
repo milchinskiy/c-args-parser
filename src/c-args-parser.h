@@ -59,6 +59,12 @@ typedef struct {
                              of a group) */
 } cargs_opt;
 
+/* Positional argument schema macros */
+// WARN: do not use this in function scope as it resolve in untyped struct
+#define CARGS_POS(name, help)           {(name), (help), 1, 1}
+#define CARGS_POS_OPT(name, help)       {(name), (help), 0, 1}
+#define CARGS_POS_N(name, help, mi, ma) {(name), (help), (mi), (ma)}
+
 /* Positional argument item schema
  * Each item consumes between min..max occurrences before the next item.
  * Use CARGS_POS_INF for unbounded max. Example schemas:
@@ -71,6 +77,7 @@ typedef struct {
 #define CARGS_POS_INF 65535
 typedef struct {
     const char *name; /* label for help (e.g., "FILE") */
+    const char *desc; /* one-line help */
     uint16_t    min;  /* minimum occurrences for this position */
     uint16_t    max;  /* maximum occurrences (CARGS_POS_INF for unbounded) */
 } cargs_pos;
@@ -171,13 +178,19 @@ static inline bool cargs_use_color(const cargs_env *e) {
 }
 static inline const char *cargs_s_bold(const cargs_env *e) {
     return cargs_use_color(e) ? "\x1b[1m" : "";
-}
+} /* bold */
 static inline const char *cargs_s_flag(const cargs_env *e) {
     return cargs_use_color(e) ? "\x1b[36m" : "";
-}
+} /* cyan */
+static inline const char *cargs_s_cmd(const cargs_env *e) {
+    return cargs_use_color(e) ? "\x1b[35m" : "";
+} /* magenta */
+static inline const char *cargs_s_pos(const cargs_env *e) {
+    return cargs_use_color(e) ? "\x1b[33m" : "";
+} /* yellow */
 static inline const char *cargs_s_rst(const cargs_env *e) {
     return cargs_use_color(e) ? "\x1b[0m" : "";
-}
+} /* reset */
 
 /* I/O helpers */
 static inline FILE *cargs_out(const cargs_env *e) {
@@ -274,29 +287,50 @@ static inline void cargs_wrap_print(
 static inline void cargs_render_pos_usage(
     char *buf, size_t bufsz, const cargs_cmd *cmd
 ) {
-    if (!buf || !bufsz) { return; }
+    if (!buf || bufsz == 0) return;
     buf[0] = '\0';
-    if (!cmd || !cmd->pos || !cmd->pos_count) return;
+    if (!cmd || !cmd->pos || cmd->pos_count == 0) return;
     size_t n = 0;
+
+#define APPEND(fmt, ...)                                             \
+    do {                                                             \
+        int _w = snprintf(                                           \
+            buf + n, (n < bufsz) ? (bufsz - n) : 0, fmt, __VA_ARGS__ \
+        );                                                           \
+        if (_w > 0) {                                                \
+            size_t _add = (size_t)_w;                                \
+            n           = (n + _add < bufsz) ? (n + _add) : bufsz;   \
+        }                                                            \
+    } while (0)
+
     for (size_t i = 0; i < cmd->pos_count; i++) {
         const cargs_pos *p    = &cmd->pos[i];
-        const char      *name = p->name ? p->name : "ARG";
-        if (p->min == 0 && p->max == 1) {
-            n += (size_t)snprintf(buf + n, bufsz - n, " [%s]", name);
-        } else if (p->min == 1 && p->max == 1) {
-            n += (size_t)snprintf(buf + n, bufsz - n, " %s", name);
-        } else if (p->min == 0 && p->max == CARGS_POS_INF) {
-            n += (size_t)snprintf(buf + n, bufsz - n, " [%s ...]", name);
-        } else if (p->min == 1 && p->max == CARGS_POS_INF) {
-            n += (size_t)snprintf(buf + n, bufsz - n, " %s...", name);
+        const char      *name = (p && p->name && *p->name) ? p->name : "ARG";
+
+        if (p->max == CARGS_POS_INF) {
+            /* Unbounded */
+            int minreq = (p->min > 0) ? p->min : 0;
+            for (int k = 0; k < minreq; ++k) APPEND(" %s", name);
+            if (p->min <= 0) APPEND(" [%s ...]", name);
+            else
+                APPEND(
+                    " [%s ...]", name
+                ); /* 1..inf or more: tail optional list */
+        } else if (p->max <= 1) {
+            /* 0..1 or 1..1 */
+            if (p->min == 0) APPEND(" [%s]", name);
+            else APPEND(" %s", name);
         } else {
-            n += (size_t)snprintf(
-                buf + n, bufsz - n, " %s{%u..%u}", name, (unsigned)p->min,
-                (unsigned)(p->max)
-            );
+            /* Finite M..N with N>1 */
+            int minreq = (p->min > 0) ? p->min : 0;
+            for (int k = 0; k < minreq; ++k) APPEND(" %s", name);
+            int opt = (int)p->max - minreq;
+            for (int k = 0; k < opt; ++k) APPEND(" [%s]", name);
         }
         if (n >= bufsz) break;
     }
+    if (bufsz) buf[bufsz - 1] = '\0';
+#undef APPEND
 }
 
 /* Validate positionals: ensure argc lies within [sum_mins, sum_maxs] (unless
@@ -332,27 +366,39 @@ static inline int cargs_validate_positional(
     return CARGS_OK;
 }
 
+static inline bool cargs__has_any_options(
+    const cargs_env *env, const cargs_cmd *cmd
+) {
+    return (cmd && cmd->opt_count > 0) ||
+           (env && (env->auto_help || env->auto_version || env->auto_author));
+}
+
 static inline void cargs_print_usage(
     const cargs_env *env, const char *prog, const char *const *path,
     size_t depth, const cargs_cmd *cmd
 ) {
     FILE       *out = cargs_out(env);
     const char *B = cargs_s_bold(env), *R = cargs_s_rst(env);
+
     char        buf[256];
     buf[0]   = '\0';
     size_t n = 0;
-    if (prog) { n += (size_t)snprintf(buf + n, sizeof(buf) - n, "%s", prog); }
+    if (prog) n += (size_t)snprintf(buf + n, sizeof(buf) - n, "%s", prog);
     for (size_t i = 0; i < depth; i++) {
         if (n + 1 < sizeof(buf)) buf[n++] = ' ';
         n += (size_t)snprintf(buf + n, sizeof(buf) - n, "%s", path[i]);
     }
     buf[sizeof(buf) - 1] = '\0';
+
     fprintf(out, "%sUsage:%s %s", B, R, buf);
-    fprintf(out, " [options]");
-    if (cmd && cmd->sub_count) fprintf(out, " <command> [command-options]");
+
+    if (cargs__has_any_options(env, cmd)) fputs(" [options]", out);
+    if (cmd && cmd->sub_count) fputs(" <command> [command-options]", out);
+
     char pbuf[192];
     cargs_render_pos_usage(pbuf, sizeof(pbuf), cmd);
     fputs(pbuf, out);
+
     if (!cmd || !cmd->pos || !cmd->pos_count) fputs(" [--] [args...]", out);
     fputc('\n', out);
 }
@@ -385,19 +431,176 @@ static inline void cargs_print_opt_row(
         n += (size_t)snprintf(lhs + n, sizeof(lhs) - n, " (env %s)", o->env);
     }
 
-    const int left      = 30;
-    int       width     = cargs_columns(env);
-    int       start_col = left + 2;
-    if (width <= 0) {
-        fprintf(out, "  %-30s %s\n", lhs, o->help ? o->help : "");
-        return;
-    }
     char colored[200];
     if (cargs_use_color(env))
         snprintf(colored, sizeof(colored), "%s%s%s", F, lhs, R);
     else snprintf(colored, sizeof(colored), "%s", lhs);
+
+    const int left      = 30;
+    int       width     = cargs_columns(env);
+    int       start_col = left + 2;
+    if (width <= 0) {
+        fprintf(out, "  %-30s %s\n", colored, o->help ? o->help : "");
+        return;
+    }
     fprintf(out, "  %-30s ", colored);
     cargs_wrap_print(out, o->help ? o->help : "", start_col + 2, width);
+}
+
+static inline void cargs_print_cmd_row(
+    const cargs_env *env, const cargs_cmd *c
+) {
+    FILE       *out = cargs_out(env);
+    const char *C = cargs_s_cmd(env), *R = cargs_s_rst(env);
+
+    /* build command name + optional "(alias: ...)" */
+    char   name[160];
+    size_t n = 0;
+    name[0]  = '\0';
+    n += (size_t)snprintf(
+        name + n, sizeof(name) - n, "%s", c->name ? c->name : ""
+    );
+    if (c->alias_count) {
+        n += (size_t)snprintf(name + n, sizeof(name) - n, " (alias: ");
+        for (size_t a = 0; a < c->alias_count; a++) {
+            if (a) n += (size_t)snprintf(name + n, sizeof(name) - n, ", ");
+            n += (size_t)snprintf(
+                name + n, sizeof(name) - n, "%s", c->aliases[a]
+            );
+        }
+        n += (size_t)snprintf(name + n, sizeof(name) - n, ")");
+    }
+
+    char lhs[192];
+    snprintf(lhs, sizeof(lhs), "%s%s%s", C, name, R);
+
+    const int left      = 30;
+    int       width     = cargs_columns(env);
+    int       start_col = left + 2;
+
+    if (width <= 0) {
+        fprintf(out, "  %-30s %s\n", lhs, c->desc ? c->desc : "");
+        return;
+    }
+    fprintf(out, "  %-30s ", lhs);
+    cargs_wrap_print(out, c->desc ? c->desc : "", start_col + 2, width);
+}
+
+static inline void cargs_print_pos_row(
+    const cargs_env *env, const cargs_pos *p
+) {
+    FILE       *out = cargs_out(env);
+    const char *P = cargs_s_pos(env), *R = cargs_s_rst(env);
+    const char *name = (p && p->name && *p->name) ? p->name : "ARG";
+
+    /* Left column (colored metavar) */
+    char lhs[160];
+    (void)snprintf(lhs, sizeof(lhs), "%s%s%s", P, name, R);
+
+    /* Right column: prefer help; add (min..max) only when not 1..1 */
+    char   rhs[256];
+    size_t off = 0;
+
+    if (p && p->desc && *p->desc) {
+        int n = snprintf(rhs + off, sizeof(rhs) - off, "%s", p->desc);
+        if (n > 0)
+            off += (size_t)n < (sizeof(rhs) - off) ? (size_t)n
+                                                   : (sizeof(rhs) - off - 1);
+    }
+
+    const bool need_hint = (p && (p->min != 1 || p->max != 1));
+    if (need_hint) {
+        if (off && off < sizeof(rhs) - 1) rhs[off++] = ' ';
+        if (p->min == p->max) {
+            int n = snprintf(
+                rhs + off, sizeof(rhs) - off, "(x%u)", (unsigned)p->min
+            );
+            if (n > 0)
+                off += (size_t)n < (sizeof(rhs) - off)
+                           ? (size_t)n
+                           : (sizeof(rhs) - off - 1);
+        } else if (p->max == CARGS_POS_INF) {
+            int n = snprintf(
+                rhs + off, sizeof(rhs) - off, "(%u..inf)", (unsigned)p->min
+            );
+            if (n > 0)
+                off += (size_t)n < (sizeof(rhs) - off)
+                           ? (size_t)n
+                           : (sizeof(rhs) - off - 1);
+        } else {
+            int n = snprintf(
+                rhs + off, sizeof(rhs) - off, "(%u..%u)", (unsigned)p->min,
+                (unsigned)p->max
+            );
+            if (n > 0)
+                off += (size_t)n < (sizeof(rhs) - off)
+                           ? (size_t)n
+                           : (sizeof(rhs) - off - 1);
+        }
+    }
+
+    if (off == 0) {
+        /* No help provided and it's 1..1 → keep it simple */
+        (void)snprintf(rhs, sizeof(rhs), "%s", "");
+    }
+
+    const int left      = 30;
+    int       width     = cargs_columns(env);
+    int       start_col = left + 2;
+
+    if (width <= 0) {
+        fprintf(out, "  %-30s %s\n", lhs, rhs);
+        return;
+    }
+    fprintf(out, "  %-30s ", lhs);
+    cargs_wrap_print(out, rhs, start_col + 2, width);
+}
+
+static inline void cargs_build_usage_pos(
+    char *dst, size_t cap, const cargs_pos *pos, size_t npos
+) {
+    size_t off = 0;
+#define APPEND(fmt, ...)                                                       \
+    do {                                                                       \
+        int _n = snprintf(                                                     \
+            dst + off, (cap > off ? cap - off : 0), fmt, __VA_ARGS__           \
+        );                                                                     \
+        if (_n > 0)                                                            \
+            off += (size_t)_n < (cap - off) ? (size_t)_n                       \
+                                            : (cap - off ? cap - off - 1 : 0); \
+    } while (0)
+
+    for (size_t i = 0; i < npos; ++i) {
+        const cargs_pos *p   = &pos[i];
+        const char      *tok = (p->name && *p->name) ? p->name : "ARG";
+
+        if (p->max == CARGS_POS_INF) {
+            /* Variadic tail */
+            if (p->min <= 0) {
+                APPEND(" [%s ...]", tok);
+            } else if (p->min == 1) {
+                APPEND(" %s [%s ...]", tok, tok);
+            } else {
+                for (int k = 0; k < p->min; ++k) APPEND(" %s", tok);
+                APPEND(" [%s ...]", tok);
+            }
+        } else if (p->max <= 1) {
+            /* 0..1 or 1..1 */
+            if (p->min == 0) {
+                APPEND(" [%s]", tok);
+            } else {
+                APPEND(" %s", tok);
+            }
+        } else {
+            /* Finite 0..N or M..N with N>1 */
+            if (p->min > 0) {
+                for (int k = 0; k < p->min; ++k) APPEND(" %s", tok);
+            }
+            int opt = (int)p->max - (p->min > 0 ? p->min : 0);
+            for (int k = 0; k < opt; ++k) APPEND(" [%s]", tok);
+        }
+    }
+#undef APPEND
 }
 
 static inline size_t cargs_join_aliases(
@@ -481,43 +684,15 @@ static inline void cargs_print_help(
     if (cmd && cmd->sub_count) {
         fprintf(out, "%sCommands:%s\n", B, R);
         for (size_t i = 0; i < cmd->sub_count; i++) {
-            const cargs_cmd *c = &cmd->subs[i];
-            char             lhs[256];
-            lhs[0] = '\0';
-            if (c->alias_count) {
-                char a[128];
-                cargs_join_aliases(c, a, sizeof(a));
-                snprintf(
-                    lhs, sizeof(lhs), "%s (alias: %s)", c->name ? c->name : "",
-                    a
-                );
-            } else {
-                snprintf(lhs, sizeof(lhs), "%s", c->name ? c->name : "");
-            }
-            fprintf(out, "  %-30s %s\n", lhs, c->desc ? c->desc : "");
+            cargs_print_cmd_row(env, &cmd->subs[i]);
         }
     }
 
     /* Positionals */
     if (cmd && cmd->pos_count) {
-        fprintf(out, "\n%sPositionals:%s\n", B, R);
-        for (size_t i = 0; i < cmd->pos_count; i++) {
-            const cargs_pos *p = &cmd->pos[i];
-            char             range[32];
-            if (p->min == p->max)
-                snprintf(range, sizeof(range), "%u", (unsigned)p->min);
-            else if (p->max == CARGS_POS_INF)
-                snprintf(range, sizeof(range), "%u..inf", (unsigned)p->min);
-            else
-                snprintf(
-                    range, sizeof(range), "%u..%u", (unsigned)p->min,
-                    (unsigned)p->max
-                );
-            fprintf(
-                out, "  %-30s occurrences: %s\n", p->name ? p->name : "ARG",
-                range
-            );
-        }
+        fprintf(out, "%sPositionals:%s\n", B, R);
+        for (size_t i = 0; i < cmd->pos_count; ++i)
+            cargs_print_pos_row(env, &cmd->pos[i]);
     }
 }
 
@@ -936,16 +1111,18 @@ static inline void cargs__emit_md(
     fprintf(out, "%s", prog);
     for (size_t i = 0; i < depth; i++) fprintf(out, " %s", path[i]);
     fputc('\n', out);
-    char pbuf[192];
-    cargs_render_pos_usage(pbuf, sizeof(pbuf), cmd);
-    fprintf(out, "\n**Usage:** `%s", prog);
+
+    char posbuf[192];
+    cargs_render_pos_usage(posbuf, sizeof(posbuf), cmd);
+
+    fprintf(out, "\n**Usage:** `");
+    fprintf(out, "%s", prog);
     for (size_t i = 0; i < depth; i++) fprintf(out, " %s", path[i]);
-    fprintf(
-        out, "` [options]%s\n\n",
-        (cmd && cmd->sub_count) ? " <command> [command-options]" : ""
-    );
-    fputs(pbuf, out);
-    fputc('\n', out);
+    if (cargs__has_any_options(env, cmd)) fputs(" [options]", out);
+    if (cmd && cmd->sub_count) fputs(" <command> [command-options]", out);
+    fputs(posbuf, out);
+    fputs("`\n\n", out);
+
     if (env && env->auto_help) {
         fprintf(out, "### Options\n- `-h, --help` — Show this help and exit\n");
     }
@@ -963,26 +1140,39 @@ static inline void cargs__emit_md(
                 fprintf(out, "-%c", o->short_name);
                 if (o->long_name) fputs(", ", out);
             }
-            if (o->long_name) { fprintf(out, "--%s", o->long_name); }
+            if (o->long_name) fprintf(out, "--%s", o->long_name);
             if (o->arg == CARGS_ARG_REQUIRED)
                 fprintf(out, " %s", o->metavar ? o->metavar : "VALUE");
             if (o->arg == CARGS_ARG_OPTIONAL)
-                fprintf(out, "[%s]", o->metavar ? o->metavar : "VALUE");
+                fprintf(out, " [%s]", o->metavar ? o->metavar : "VALUE");
             fprintf(out, "` — %s\n", o->help ? o->help : "");
         }
     }
+
     if (cmd && cmd->pos_count) {
         fprintf(out, "\n### Positionals\n");
         for (size_t i = 0; i < cmd->pos_count; i++) {
             const cargs_pos *p = &cmd->pos[i];
             if (!p->name) continue;
-            fprintf(out, "- **%s** — occurrences: ", p->name);
-            if (p->min == p->max) fprintf(out, "%u\n", (unsigned)p->min);
-            else if (p->max == CARGS_POS_INF)
-                fprintf(out, "%u..inf\n", (unsigned)p->min);
-            else fprintf(out, "%u..%u\n", (unsigned)p->min, (unsigned)p->max);
+
+            fprintf(out, "- **%s**", p->name);
+            if (p->desc && *p->desc) fprintf(out, " — %s", p->desc);
+
+            if (p->min != 1 || p->max != 1) {
+                if (p->min == p->max) {
+                    fprintf(out, " (x%u)", (unsigned)p->min);
+                } else if (p->max == CARGS_POS_INF) {
+                    fprintf(out, " (%u..inf)", (unsigned)p->min);
+                } else {
+                    fprintf(
+                        out, " (%u..%u)", (unsigned)p->min, (unsigned)p->max
+                    );
+                }
+            }
+            fputc('\n', out);
         }
     }
+
     if (cmd && cmd->sub_count) {
         fprintf(out, "\n### Commands\n");
         for (size_t i = 0; i < cmd->sub_count; i++) {
@@ -996,7 +1186,7 @@ static inline void cargs__emit_md(
                 }
                 fputc(')', out);
             }
-            if (c->desc) { fprintf(out, " — %s", c->desc); }
+            if (c->desc) fprintf(out, " — %s", c->desc);
             fputc('\n', out);
         }
         for (size_t i2 = 0; i2 < cmd->sub_count; i2++) {

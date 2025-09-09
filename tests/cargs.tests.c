@@ -179,11 +179,11 @@ static int run_remote_rm(int argc, char **argv, void *user) {
 static void build_root_basic(const cargs_cmd **out_root) {
     static const char     *remote_alias_rm[] = {"rm"};
     static const cargs_pos pos_add[]         = {
-        {"NAME", 1, 1},
-        {"URL",  1, 1}
+        CARGS_POS("NAME", NULL),
+        CARGS_POS("URL", NULL),
     };
     static const cargs_pos pos_rm[] = {
-        {"NAME", 1, 1}
+        CARGS_POS("NAME", NULL),
     };
 
     static const cargs_opt root_opts[] = {
@@ -197,21 +197,11 @@ static void build_root_basic(const cargs_cmd **out_root) {
     static const cargs_cmd remote_subs[] = {
         {.name        = "add",
          .desc        = "Add",
-         .opts        = NULL,
-         .opt_count   = 0,
-         .subs        = NULL,
-         .sub_count   = 0,
-         .aliases     = NULL,
-         .alias_count = 0,
          .pos         = pos_add,
          .pos_count   = 2,
          .run         = run_remote_add},
         {.name        = "remove",
          .desc        = "Remove",
-         .opts        = NULL,
-         .opt_count   = 0,
-         .subs        = NULL,
-         .sub_count   = 0,
          .aliases     = remote_alias_rm,
          .alias_count = 1,
          .pos         = pos_rm,
@@ -221,29 +211,16 @@ static void build_root_basic(const cargs_cmd **out_root) {
     static const cargs_cmd remote = {
         .name        = "remote",
         .desc        = "Manage remotes",
-        .opts        = NULL,
-        .opt_count   = 0,
         .subs        = remote_subs,
         .sub_count   = sizeof(remote_subs) / sizeof(remote_subs[0]),
-        .aliases     = NULL,
-        .alias_count = 0,
-        .pos         = NULL,
-        .pos_count   = 0,
-        .run         = NULL
     };
     static const cargs_cmd subs[] = {remote};
 
     static const cargs_cmd root   = {
-          .name        = NULL,
-          .desc        = NULL,
           .opts        = root_opts,
           .opt_count   = sizeof(root_opts) / sizeof(root_opts[0]),
           .subs        = subs,
           .sub_count   = sizeof(subs) / sizeof(subs[0]),
-          .aliases     = NULL,
-          .alias_count = 0,
-          .pos         = NULL,
-          .pos_count   = 0,
           .run         = run_root
     };
     *out_root = &root;
@@ -256,16 +233,8 @@ static void build_root_req_one(const cargs_cmd **out_root) {
         {"dark",  0, CARGS_ARG_NONE, NULL, "dark mode",  cb_dark,  NULL, NULL, 2, CARGS_GRP_REQ_ONE},
     };
     static const cargs_cmd root = {
-        .name        = NULL,
-        .desc        = NULL,
         .opts        = opts,
         .opt_count   = sizeof(opts) / sizeof(opts[0]),
-        .subs        = NULL,
-        .sub_count   = 0,
-        .aliases     = NULL,
-        .alias_count = 0,
-        .pos         = NULL,
-        .pos_count   = 0,
         .run         = run_root
     };
     *out_root = &root;
