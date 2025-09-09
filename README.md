@@ -5,9 +5,10 @@ Subcommands (like `git`), option groups, env‑var defaults, positional schemas,
 pretty help, size parsers, auto‑generated docs (Markdown & man), and shell
 completions (bash/zsh/fish). No dependencies. Thread‑safe (no globals).
 
-> Header file: `c-args-parser.h` (install path `include/c-args-parser/c-args-parser.h`).
-
----
+<p align="center">
+  <img src="assets/demo-usage.png" alt="demo --help usage output" width="830"><br>
+  <sup><a href="examples/08_demo.c"><code>examples/08_demo.c</code></a></sup>
+</p>
 
 ## Highlights
 

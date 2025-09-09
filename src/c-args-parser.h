@@ -686,6 +686,8 @@ static inline void cargs_print_help(
         for (size_t i = 0; i < cmd->sub_count; i++) {
             cargs_print_cmd_row(env, &cmd->subs[i]);
         }
+
+        if (cmd->pos_count) fputc('\n', out);
     }
 
     /* Positionals */

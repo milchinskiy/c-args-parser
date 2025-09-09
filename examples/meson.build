@@ -4,12 +4,13 @@ ex1 = executable('ex-hello',      ['01_hello.c'],      include_directories: ex_i
 ex2 = executable('ex-cp-like',    ['02_cp_like.c'],    include_directories: ex_inc)
 ex3 = executable('ex-remote',     ['03_remote.c'],     include_directories: ex_inc)
 ex4 = executable('ex-groups',     ['04_groups.c'],     include_directories: ex_inc)
-ex5 = executable('ex-docs',    ['05_docs_completion.c'],include_directories: ex_inc)
-ex6 = executable('ex-env',     ['06_env_defaults.c'],    include_directories: ex_inc)
-ex7 = executable('ex-sizes',   ['07_sizes.c'],           include_directories: ex_inc)
+ex5 = executable('ex-docs',     ['05_docs_completion.c'],include_directories: ex_inc)
+ex6 = executable('ex-env',      ['06_env_defaults.c'],    include_directories: ex_inc)
+ex7 = executable('ex-sizes',    ['07_sizes.c'],           include_directories: ex_inc)
+ex8 = executable('demo',        ['08_demo.c'],           include_directories: ex_inc)
 
 # A handy alias to build all examples:
-alias_target('examples', [ex1, ex2, ex3, ex4, ex5, ex6, ex7])
+alias_target('examples', [ex1, ex2, ex3, ex4, ex5, ex6, ex7, ex8])
 
 # Cross-platform /dev/null
 devnull = host_machine.system() == 'windows' ? 'NUL' : '/dev/null'
@@ -43,5 +44,5 @@ meson_prog = find_program('meson')
 run_target('examples-run',
   command: [meson_prog, 'test', '-C', meson.project_build_root(),
             '--suite', 'examples', '--verbose'],
-  depends: [ex1, ex2, ex3, ex4, ex5, ex6, ex7]
+  depends: [ex1, ex2, ex3, ex4, ex5, ex6, ex7, ex8]
 )
