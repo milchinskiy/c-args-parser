@@ -42,30 +42,12 @@
             clang --version
           '';
         };
-
-        package = pkgs.stdenv.mkDerivation {
-          inherit nativeBuildInputs buildInputs;
-          name = "c-args-parser";
-          src = ./.;
-          installPhase = ''
-            echo "Installing project"
-          '';
-          buildPhase = ''
-            echo "Building project"
-          '';
-        };
       }
     );
   in {
     devShells =
       nixpkgs.lib.mapAttrs (system: systemAttrs: {
         default = systemAttrs.devShell;
-      })
-      eachSystem;
-
-    packages =
-      nixpkgs.lib.mapAttrs (system: systemAttrs: {
-        default = systemAttrs.package;
       })
       eachSystem;
   };
